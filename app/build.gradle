@@ -3,6 +3,11 @@ plugins {
     id 'kotlin-android'
 }
 
+task buildJni(type: Exec) {
+    workingDir project.layout.projectDirectory.dir("src/main/cpp").asFile
+    commandLine "bash", "-c", "./build.jni.sh"
+}
+
 android {
     compileSdk 31
 
@@ -49,6 +54,15 @@ android {
         cmake {
             path file('src/main/cpp/CMakeLists.txt')
             version '3.10.2'
+        }
+    }
+    testOptions {
+        unitTests {
+            returnDefaultValues = true
+            all {
+                dependsOn buildJni
+                systemProperty "java.library.path", project.layout.projectDirectory.dir("src/main/cpp/build/bin").asFile
+            }
         }
     }
 }

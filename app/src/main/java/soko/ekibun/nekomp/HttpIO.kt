@@ -1,22 +1,24 @@
-package soko.ekibun.ffmpeg.io
+package soko.ekibun.nekomp
 
-import android.util.Log
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.Response
 import okhttp3.internal.headersContentLength
-import soko.ekibun.ffmpeg.AvIOContext
+import soko.ekibun.ffmpeg.AvFormat
+import soko.ekibun.ffmpeg.AvIO
 
-class HttpIOContext(val req: Request) : AvIOContext {
+class HttpIO(val req: Request) : AvIO {
   companion object {
     private val client = OkHttpClient()
   }
 
   private data class HttpResponse(
-    val rsp: Response,
+    private val rsp: Response,
     var offset: Int
   ) {
     private val stream by lazy { rsp.body!!.byteStream() }
+
+    val headersContentLength get() = rsp.headersContentLength().toInt()
 
     val available get() = try {
       stream.available()
@@ -33,11 +35,16 @@ class HttpIOContext(val req: Request) : AvIOContext {
       stream.skip(count.toLong())
       offset += count
     }
+
+    fun close() {
+      stream.close()
+      rsp.close()
+    }
   }
 
-  class Handler : AvIOContext.Handler {
-    override fun open(url: String): AvIOContext {
-      return HttpIOContext(Request.Builder().get().url(url).build())
+  class Handler : AvIO.Handler {
+    override fun open(url: String): AvIO {
+      return HttpIO(Request.Builder().get().url(url).build())
     }
   }
 
@@ -65,11 +72,11 @@ class HttpIOContext(val req: Request) : AvIOContext {
       if (newRsp.offset + newRsp.available >
         rsp.offset + rsp.available
       ) {
-        rsp.rsp.close()
+        rsp.close()
         rsp = newRsp
       } else {
         // not support content-range
-        newRsp.rsp.close()
+        newRsp.close()
       }
       // consume
       while (true) {
@@ -91,7 +98,7 @@ class HttpIOContext(val req: Request) : AvIOContext {
        *   |    [////buffer////]
        * offset
        */
-      rsp.rsp.close()
+      rsp.close()
       _rsp = null
       return getResponse()
     }
@@ -101,22 +108,23 @@ class HttpIOContext(val req: Request) : AvIOContext {
 
   override fun read(buf: ByteArray): Int {
     val ret = getResponse().read(buf)
-    Log.e("READ", "$offset+$ret")
+    println("READ: $offset+$ret")
     offset += ret
     return ret
   }
 
   override fun seek(offset: Int, whence: Int): Int {
-    Log.e("SEEK", "$offset $whence")
+    println("SEEK: $offset $whence")
     when (whence) {
-      AvIOContext.AVSEEK_SIZE -> return getResponse().rsp.headersContentLength().toInt()
+      AvFormat.AVSEEK_SIZE -> return getResponse().headersContentLength
       else -> this.offset = offset
     }
     return 0
   }
 
-  override fun destroy() {
-    _rsp?.rsp?.close()
+  override fun close() {
+    println("CLOSE: ${req.url}")
+    _rsp?.close()
     _rsp = null
   }
 }

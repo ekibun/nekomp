@@ -1,8 +1,13 @@
 package soko.ekibun.ffmpeg
 
 data class AvStream(
-  private val ptr: Long,
-  private val index: Int,
-  private val codecType: Int,
-  private val metadata: Map<String, String>
+  val ptr: Long,
+  val index: Int,
+  val codecType: Int,
+  val sampleRate: Int,
+  val channels: Int,
+  val width: Int,
+  val height: Int,
+  val duration: Long,
+  val metadata: Map<String, String>
 )

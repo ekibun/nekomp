@@ -14,3 +14,4 @@
 .cxx
 local.properties
 /app/src/main/cpp/ffmpeg/build/
+/app/src/main/cpp/build/
