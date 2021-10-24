@@ -1,8 +1,6 @@
-cmake_minimum_required(VERSION 3.10.2)
+cmake_minimum_required(VERSION 3.13.0)
 
 project("nekomp")
-
-message(ANDROID)
 
 if (ANDROID)
     find_library(log-lib log)
@@ -14,4 +12,4 @@ else()
     include_directories("/mnt/d/Apps/jdk/include/win32")
 endif ()
 
-include("${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg/CMakeLists.txt")
+include("${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg/ffmpeg.cmake")

@@ -18,6 +18,6 @@ class ExampleUnitTest {
         )
         val streams = ctx.getStreams()
         println(streams)
-        ctx.play(streams)
+        ctx.play(mapOf())
     }
 }
