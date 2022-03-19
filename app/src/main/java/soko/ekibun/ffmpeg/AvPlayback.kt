@@ -3,11 +3,6 @@ package soko.ekibun.ffmpeg
 abstract class AvPlayback(
   val onFrame: (Long?) -> Unit
 ) {
-  companion object {
-    init {
-      System.loadLibrary("ffmpeg")
-    }
-  }
   abstract val sampleRate: Int
   abstract val channels: Int
   abstract val audioFormat: Int

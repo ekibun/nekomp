@@ -1,6 +1,5 @@
 #include <jni.h>
 #include <map>
-#include "../jni_wrap.hpp"
 
 extern "C"
 {
@@ -13,11 +12,18 @@ extern "C"
 #include <jni.h>
 }
 
-std::map<jobject, jobject> av_dict_to_map(JNIEnv *env, AVDictionary *d) {
+jobject av_dict_to_map(JNIEnv *env, AVDictionary *d) {
   AVDictionaryEntry *t = nullptr;
-  std::map<jobject, jobject> map;
+  jclass class_hashmap = env->FindClass("java/util/HashMap");
+  jmethodID hashmap_init = env->GetMethodID(class_hashmap, "<init>", "()V");
+  jobject map = env->NewObject(class_hashmap, hashmap_init);
+  jmethodID hashMap_put = env->GetMethodID(class_hashmap, "put", "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
   while ((t = av_dict_get(d, "", t, AV_DICT_IGNORE_SUFFIX))) {
-    map[env->NewStringUTF(t->key)] = env->NewStringUTF(t->value);
+    auto key = env->NewStringUTF(t->key);
+    auto value = env->NewStringUTF(t->value);
+    env->CallObjectMethod(map, hashMap_put, key, value);
+    env->DeleteLocalRef(key);
+    env->DeleteLocalRef(value);
   }
   return map;
 }
@@ -150,7 +156,6 @@ Java_soko_ekibun_ffmpeg_AvFormat_getStreamsNative(JNIEnv *env, jobject thiz, jlo
   for (int i = 0; i < ctx->nb_streams; ++i) {
     AVStream *stream = ctx->streams[i];
     auto metadata = av_dict_to_map(env, stream->metadata);
-    jobject metadataObj = jniWrapMap(env, metadata);
     jobject streamObj = env->NewObject(
         streamClass, constructor,
         (jlong) stream, i,
@@ -160,8 +165,8 @@ Java_soko_ekibun_ffmpeg_AvFormat_getStreamsNative(JNIEnv *env, jobject thiz, jlo
         (jint) stream->codecpar->width,
         (jint) stream->codecpar->height,
         (jlong) (stream->duration * av_q2d(stream->time_base) * AV_TIME_BASE),
-        metadataObj);
-    env->DeleteLocalRef(metadataObj);
+        metadata);
+    env->DeleteLocalRef(metadata);
     env->SetObjectArrayElement(
         streams, i, streamObj);
     env->DeleteLocalRef(streamObj);

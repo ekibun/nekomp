@@ -1,3 +1,7 @@
 [submodule "ffmpeg"]
 	path = app/src/main/cpp/ffmpeg/ffmpeg
 	url = https://github.com/ekibun/FFmpeg.git
+
+[submodule "quickjs"]
+	path = app/src/main/cpp/quickjs/quickjs
+	url = https://github.com/ekibun/quickjs.git

@@ -58,11 +58,6 @@ class FFPlayer(
     val newPts = PTS(oldPts.streams, ts)
     pts = newPts
     // remove cache frame
-    frames.forEach {
-      it.value.forEach { frame ->
-        frame.close()
-      }
-    }
     frames.clear()
     // flush codec
     codecs.forEach {
@@ -141,7 +136,6 @@ class FFPlayer(
             }.also { job ->
               job.invokeOnCompletion {
                 frames[stream.index]?.remove(frame)
-                frame.close()
               }
             }
             lastUpdate?.join()
@@ -165,13 +159,11 @@ class FFPlayer(
             continue
           }
           if (!isPlaying()) {
-            packet.close()
             break
           }
           sendingPacket++
           // for downloading
           if (pts.streams.isEmpty()) {
-            packet.close()
             sendingPacket--
             continue
           }
@@ -181,11 +173,9 @@ class FFPlayer(
           }
           async(dispatcher) {
             val frame = if (this@FFPlayer.pts == pts) codec.sendPacketAndGetFrame(packet) else null
-            packet.close()
             sendingPacket--
             if (frame == null) return@async
             if (this@FFPlayer.pts != pts) {
-              frame.close()
               return@async
             }
             frames.getOrPut(stream.index) { arrayListOf() }.add(frame)

@@ -1,7 +1,7 @@
 package soko.ekibun.ffmpeg
 
 class AvFrame(
-  var ptr: Long,
+  val ptr: Long,
   val timeStamp: Long,
   val width: Int,
   val height: Int
@@ -9,8 +9,7 @@ class AvFrame(
   var processing: FFPlayer.PTS? = null
 
   private external fun closeNative(ptr: Long)
-  fun close() {
+  protected fun finalize() {
     if(ptr != 0L) closeNative(ptr)
-    ptr = 0
   }
 }
