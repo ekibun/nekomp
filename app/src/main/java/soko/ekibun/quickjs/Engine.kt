@@ -6,11 +6,11 @@ import java.util.concurrent.Executors
 
 class Engine {
   private var ctx: QuickJS.Context? = null
-  private val dispatcher by lazy {
+  val dispatcher by lazy {
     Executors.newSingleThreadExecutor().asCoroutineDispatcher()
   }
 
-  private val updateChannel = Channel<Unit>()
+  val updateChannel = Channel<Unit>()
   init {
     MainScope().launch(dispatcher) {
       for(v in updateChannel) {
@@ -29,7 +29,7 @@ class Engine {
 
   suspend fun <T> runWithContext(create: Boolean = true, cb: suspend (ctx: QuickJS.Context) -> T): T {
     return withContext(dispatcher) {
-      if (create && ctx == null) ctx = QuickJS.Context(updateChannel)
+      if (create && ctx == null) ctx = QuickJS.Context(this@Engine)
       cb(ctx?:throw Exception("QuickJS closed"))
     }
   }

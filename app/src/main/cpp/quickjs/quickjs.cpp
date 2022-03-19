@@ -2,12 +2,17 @@
 #include "quickjs/quickjs.h"
 #include <unordered_map>
 #include <cstring>
+extern "C"
+{
+#include "quickjs/libregexp.h"
+}
 
 struct JSRuntimeOpaque {
   JavaVM *javaVm;
   jobject thiz;
   JSClassID javaClassID;
 };
+
 void jsFreeValue(jlong ctx, jlong obj) {
   JS_FreeValue((JSContext *) ctx, *((JSValue *) obj));
   delete (JSValue *) obj;
@@ -51,6 +56,7 @@ JNIEXPORT void JNICALL
 Java_soko_ekibun_quickjs_QuickJS_destroyContext(JNIEnv *, jclass, jlong ctx) {
   JSRuntime *rt = JS_GetRuntime((JSContext *) ctx);
   JS_FreeContext((JSContext *) ctx);
+  JS_SetRuntimeOpaque(rt, nullptr);
   JS_FreeRuntime(rt);
 }
 extern "C"
@@ -65,7 +71,7 @@ Java_soko_ekibun_quickjs_QuickJS_jsNewString(JNIEnv *env, jclass, jlong ctx, jst
   auto ret = (jlong) new JSValue(JS_NewString(
       (JSContext *) ctx, jstr));
   env->ReleaseStringUTFChars(obj, jstr);
-  return  ret;
+  return ret;
 }
 extern "C"
 JNIEXPORT jlong JNICALL
@@ -103,18 +109,19 @@ Java_soko_ekibun_quickjs_QuickJS_jsNewArray(JNIEnv *, jclass, jlong ctx) {
 }
 extern "C"
 JNIEXPORT jlong JNICALL
-Java_soko_ekibun_quickjs_QuickJS_jsUNDEFINED(JNIEnv *, jclass) {
-  return (jlong) new JSValue(JS_UNDEFINED);
+Java_soko_ekibun_quickjs_QuickJS_jsNULL(JNIEnv *, jclass) {
+  return (jlong) new JSValue(JS_NULL);
 }
 extern "C"
 JNIEXPORT jint JNICALL
 Java_soko_ekibun_quickjs_QuickJS_definePropertyValue(JNIEnv *, jclass, jlong ctx,
                                                      jlong obj, jlong k, jlong v, jint flags) {
   auto atom = JS_ValueToAtom((JSContext *) ctx, *(JSValue *) k);
-  auto ret = JS_DefinePropertyValue((JSContext *) ctx, *(JSValue *) obj, atom, *(JSValue *) v, flags);
+  auto ret = JS_DefinePropertyValue((JSContext *) ctx, *(JSValue *) obj, atom, *(JSValue *) v,
+                                    flags);
   JS_FreeAtom((JSContext *) ctx, atom);
   jsFreeValue(ctx, k);
-  delete (JSValue *)v;
+  delete (JSValue *) v;
   return ret;
 }
 extern "C"
@@ -228,16 +235,23 @@ jobject jsToJava(JNIEnv *env, JSContext *ctx, JSValue obj,
                               opaque->thiz);
       } else if (JS_IsError(ctx, obj)) {
         return jsToThrowable(env, ctx, obj);
-//      } else if (JS_IsPromise(ctx, obj)) {
-//        jclass clazz = env->FindClass("soko/ekibun/quickjs/QuickJS");
-//        jmethodID wrap = env->GetStaticMethodID(clazz, "wrapJSPromise", "");
-//        return env->CallStaticObjectMethod(clazz, wrap);
+      } else if (JS_IsPromise(ctx, obj)) {
+        jclass clazz = env->FindClass("soko/ekibun/quickjs/QuickJS$Context");
+        jmethodID wrap = env->GetMethodID(clazz, "wrapJSPromiseAsync",
+                                          "(JLsoko/ekibun/quickjs/JSFunction;)Lkotlinx/coroutines/Deferred;");
+        auto thenJs = JS_GetPropertyStr(ctx, obj, "then");
+        auto thenJava = jsToJava(env, ctx, thenJs, cache);
+        JS_FreeValue(ctx, thenJs);
+        auto ret = env->CallObjectMethod(
+            opaque->thiz, wrap, (jlong) new JSValue(JS_DupValue(ctx, obj)), thenJava);
+        env->DeleteLocalRef(thenJava);
+        return ret;
       } else if (JS_IsArray(ctx, obj)) {
         auto jsArrLen = JS_GetPropertyStr(ctx, obj, "length");
         int64_t arrLen;
         JS_ToInt64(ctx, &arrLen, jsArrLen);
         JS_FreeValue(ctx, jsArrLen);
-        auto list = env->NewObjectArray((int)arrLen, env->FindClass("java/lang/Object"), nullptr);
+        auto list = env->NewObjectArray((int) arrLen, env->FindClass("java/lang/Object"), nullptr);
         cache[ptr] = list;
         for (int i = 0; i < arrLen; i++) {
           auto jsprop = JS_GetPropertyUint32(ctx, obj, i);
@@ -305,14 +319,14 @@ Java_soko_ekibun_quickjs_QuickJS_jsNewCFunction(JNIEnv *, jclass, jlong ctx, jlo
         jmethodID invoke = env->GetMethodID(
             clazz, "handleJSInvokable",
             "(Lsoko/ekibun/quickjs/JSInvokable;[Ljava/lang/Object;Ljava/lang/Object;)J");
-        auto list = env->NewObjectArray((int)argc, env->FindClass("java/lang/Object"), nullptr);
-        for(int i = 0; i < argc; ++i) {
+        auto list = env->NewObjectArray((int) argc, env->FindClass("java/lang/Object"), nullptr);
+        for (int i = 0; i < argc; ++i) {
           auto v = jsToJava(env, ctx, argv[i]);
           env->SetObjectArrayElement(list, i, v);
           env->DeleteLocalRef(v);
         }
         auto thisJava = jsToJava(env, ctx, this_val);
-        auto retPtr = (JSValue *)env->CallLongMethod(opaque->thiz, invoke, obj, list, thisJava);
+        auto retPtr = (JSValue *) env->CallLongMethod(opaque->thiz, invoke, obj, list, thisJava);
         env->DeleteLocalRef(list);
         env->DeleteLocalRef(thisJava);
         JSValue ret = *retPtr;
@@ -323,38 +337,63 @@ Java_soko_ekibun_quickjs_QuickJS_jsNewCFunction(JNIEnv *, jclass, jlong ctx, jlo
 extern "C"
 JNIEXPORT jlong JNICALL
 Java_soko_ekibun_quickjs_QuickJS_jsThrowError(JNIEnv *, jclass, jlong ctx, jlong err) {
-  JS_Throw((JSContext *)ctx, *(JSValue *)err);
+  JS_Throw((JSContext *) ctx, *(JSValue *) err);
   jsFreeValue(ctx, err);
   return (jlong) new JSValue(JS_EXCEPTION);
 }
 extern "C"
 JNIEXPORT jlong JNICALL
 Java_soko_ekibun_quickjs_QuickJS_jsWrapObject(JNIEnv *env, jclass, jlong ctx, jobject obj) {
-  auto rt = JS_GetRuntime((JSContext *)ctx);
-  auto opaque = (JSRuntimeOpaque *)JS_GetRuntimeOpaque(rt);
-  auto jsObj = new JSValue(JS_NewObjectClass((JSContext *)ctx, (int)opaque->javaClassID));
+  auto rt = JS_GetRuntime((JSContext *) ctx);
+  auto opaque = (JSRuntimeOpaque *) JS_GetRuntimeOpaque(rt);
+  auto jsObj = new JSValue(JS_NewObjectClass((JSContext *) ctx, (int) opaque->javaClassID));
   if (!JS_IsException(*jsObj))
-     JS_SetOpaque(*jsObj, env->NewGlobalRef(obj));
+    JS_SetOpaque(*jsObj, env->NewGlobalRef(obj));
   return (jlong) jsObj;
 }
 extern "C"
 JNIEXPORT jlong JNICALL
 Java_soko_ekibun_quickjs_QuickJS_jsCall(JNIEnv *env, jclass, jlong ctx, jlong obj,
                                         jlong this_val, jint argc, jlongArray argv) {
-  JSRuntime *rt = JS_GetRuntime((JSContext *)ctx);
+  JSRuntime *rt = JS_GetRuntime((JSContext *) ctx);
   JS_UpdateStackTop(rt);
   auto argvJs = new JSValue[argc];
   auto longArr = env->GetLongArrayElements(argv, nullptr);
-  for(int i = 0; i < argc; ++i) {
-    argvJs[i] = *(JSValue *)longArr[i];
+  for (int i = 0; i < argc; ++i) {
+    argvJs[i] = *(JSValue *) longArr[i];
   }
-  return (jlong)new JSValue(JS_Call((JSContext *)ctx, *(JSValue *)obj, *(JSValue *)this_val, argc, argvJs));
+  return (jlong) new JSValue(
+      JS_Call((JSContext *) ctx, *(JSValue *) obj, *(JSValue *) this_val, argc, argvJs));
 }
 extern "C"
 JNIEXPORT jint JNICALL
 Java_soko_ekibun_quickjs_QuickJS_executePendingJob(JNIEnv *, jclass, jlong ctx) {
-  auto rt = JS_GetRuntime((JSContext *)ctx);
+  auto rt = JS_GetRuntime((JSContext *) ctx);
   JS_UpdateStackTop(rt);
   JSContext *pctx;
   return JS_ExecutePendingJob(rt, &pctx);
+}
+extern "C"
+JNIEXPORT jlongArray JNICALL
+Java_soko_ekibun_quickjs_QuickJS_jsNewPromise(JNIEnv *env, jclass, jlong ctx) {
+  auto resolving_funcs = new JSValue[2];
+  auto promise = (jlong) new JSValue(JS_NewPromiseCapability((JSContext *) ctx, resolving_funcs));
+  auto resolve = (jlong) new JSValue(resolving_funcs[0]);
+  auto reject = (jlong) new JSValue(resolving_funcs[1]);
+  delete[] resolving_funcs;
+  auto arr = env->NewLongArray(3);
+  env->SetLongArrayRegion(arr, 0, 1, &promise);
+  env->SetLongArrayRegion(arr, 1, 1, &resolve);
+  env->SetLongArrayRegion(arr, 2, 1, &reject);
+  return arr;
+}
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_soko_ekibun_quickjs_Highlight_isIdentNext(JNIEnv *env, jobject thiz, jchar c) {
+  return (jboolean)lre_js_is_ident_first(c);
+}
+extern "C"
+JNIEXPORT jboolean JNICALL
+Java_soko_ekibun_quickjs_Highlight_isIdentFirst(JNIEnv *env, jobject thiz, jchar c) {
+  return (jboolean)lre_js_is_ident_next(c);
 }

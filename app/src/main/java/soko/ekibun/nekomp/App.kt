@@ -6,6 +6,7 @@ class App: Application() {
   companion object {
     init {
       System.loadLibrary("ffmpeg")
+      System.loadLibrary("quickjs")
     }
   }
 }

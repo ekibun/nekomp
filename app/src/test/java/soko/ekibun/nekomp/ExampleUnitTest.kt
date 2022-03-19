@@ -1,13 +1,13 @@
 package soko.ekibun.nekomp
 
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import soko.ekibun.ffmpeg.FFPlayer
 import soko.ekibun.quickjs.Engine
 import soko.ekibun.quickjs.JSFunction
-import soko.ekibun.quickjs.JSInvokable
-import soko.ekibun.quickjs.QuickJS
 
 /**
  * Example local unit test, which will execute on the development machine (host).
@@ -32,14 +32,16 @@ class ExampleUnitTest {
     System.loadLibrary("quickjs")
     val qjs = Engine()
     runBlocking {
+      val promise = async {
+        delay(1000)
+        "hello"
+      }
       qjs.runWithContext { ctx ->
         val wrapper = ctx.evaluate("(a)=>a") as JSFunction
-        val testWrap = arrayOf(1, 0.1, true, "test")
+        val testWrap = arrayOf(1, 0.1, true, "test", promise)
         val ret = wrapper.invoke(testWrap)
-        println(ret)
+        assert(((ret as Array<*>)[4] as Deferred<*>).await() == "hello")
       }
-      System.gc()
-      delay(1000)
       qjs.close()
       System.gc()
       delay(1000)

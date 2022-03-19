@@ -5,16 +5,12 @@ import android.os.Bundle
 import android.view.TextureView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.*
 import androidx.compose.material.*
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -25,19 +21,58 @@ import soko.ekibun.ffmpeg.AvFormat
 import soko.ekibun.ffmpeg.AvStream
 import soko.ekibun.ffmpeg.FFPlayer
 import soko.ekibun.nekomp.ui.theme.NekompTheme
+import soko.ekibun.quickjs.Engine
+import soko.ekibun.quickjs.Highlight
+import soko.ekibun.quickjs.JSError
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
     setContent {
-      MainPage()
+      CodePage()
     }
   }
 
   @Preview(showBackground = true)
   @Composable
-  fun MainPage() {
+  fun CodePage() {
+    var text by remember { mutableStateOf(TextFieldValue()) }
+    var evalval by remember { mutableStateOf("") }
+    val quickjs = remember { Engine() }
+
+    NekompTheme {
+      Surface {
+        Column {
+          TextField(
+            value = text,
+            onValueChange = {
+              text = TextFieldValue(Highlight.highlight(it.text), it.selection, it.composition)
+            },
+            modifier = Modifier.fillMaxWidth().weight(1f)
+          )
+          Row {
+            Button(onClick = {
+              MainScope().launch {
+                evalval = quickjs.runWithContext {
+                  try {
+                    it.evaluate(text.text)
+                  } catch (e: JSError) {
+                    e.toString()
+                  }
+                }.toString()
+              }
+            }) { Text("Run") }
+          }
+          Text(text = evalval, modifier = Modifier.padding(10.dp).weight(1f))
+        }
+      }
+    }
+  }
+
+  @Preview(showBackground = true)
+  @Composable
+  fun PlayerPage() {
     val playback = remember { mutableStateOf<Playback?>(null) }
     val url = remember { mutableStateOf("https://media.w3.org/2010/05/sintel/trailer.mp4") }
     val player = remember { mutableStateOf<FFPlayer?>(null) }
