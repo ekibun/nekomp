@@ -19,7 +19,6 @@ set(FFMPEG_CONFIGURE_COMMAND
         )
 
 if (ANDROID)
-    set(FFMPEG_PATH "${CMAKE_CURRENT_LIST_DIR}/build/${CMAKE_ANDROID_ARCH}")
     set(ffmpeg-lib
             z)
     if (${CMAKE_HOST_SYSTEM_NAME} MATCHES "Windows")
@@ -70,6 +69,9 @@ add_dependencies(ffmpeg ffmpeg_lib)
 
 target_link_directories(ffmpeg PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/lib")
 target_include_directories(ffmpeg PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/include")
+if (${CMAKE_ANDROID_ARCH} MATCHES "x86")
+    target_include_directories(ffmpeg PRIVATE "${CMAKE_CURRENT_LIST_DIR}/../build/include")
+endif ()
 
 target_link_libraries(ffmpeg PRIVATE
         ${common-lib}

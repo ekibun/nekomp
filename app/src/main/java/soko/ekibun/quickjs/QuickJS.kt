@@ -2,7 +2,9 @@ package soko.ekibun.quickjs
 
 import androidx.annotation.Keep
 import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import java.util.*
+import java.util.concurrent.Executors
 
 object QuickJS {
   @JvmStatic
@@ -83,24 +85,57 @@ object QuickJS {
   @JvmStatic
   private external fun jsNewPromise(ctx: Long): LongArray
 
-  class Context(private val engine: Engine) {
-    val ref = WeakHashMap<Long, JSObject>()
+  abstract class Context {
 
+    @Suppress("LeakingThis")
+    open class JSObject(val ptr: Long, protected val ctx: Context) {
+      init {
+        ctx.ref[ptr] = this
+      }
+      protected open fun finalize() {
+        ctx.freeValue(this)
+      }
+
+      protected fun jsCall(vararg argv: Any?, thisVal: Any?): Any? {
+        return jsToJava(ctx.ptr, ctx.jsCallImpl(this, *argv, thisVal = thisVal))
+      }
+    }
+
+    private val ref = WeakHashMap<Long, JSObject>()
     private val ctxDelegate = lazy { initContext(this) }
-    val ptr by ctxDelegate
+    private val ptr by ctxDelegate
+    private val updateChannel = Channel<Unit>()
+    private val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+    private val dispatcherThread = runBlocking(dispatcher) { Thread.currentThread() }
 
-    fun javaToJs(obj: Any?): Long {
+    private fun<T> runOnDispatcher(block: ()->T): T {
+      if(Thread.currentThread() == dispatcherThread) return block()
+      return runBlocking(dispatcher) { block() }
+    }
+
+    init {
+      MainScope().launch(dispatcher) {
+        for (v in updateChannel) {
+          while (true) {
+            val err: Int = executePendingJob(ptr)
+            if (err <= 0) {
+              if (err < 0) print(getException(ptr))
+              break
+            }
+          }
+        }
+      }
+    }
+
+    private fun javaToJs(obj: Any?): Long {
       return javaToJsImpl(obj)
     }
 
-    fun jsToJava(obj: Long): Any? {
-      return jsToJava(ptr, obj)
-    }
-
     @Keep
-    fun wrapJSPromiseAsync(obj: Long, then: JSFunction): Deferred<Any?> {
+    private fun wrapJSPromiseAsync(obj: Long, then: JSFunction): Deferred<Any?> {
       val ret = CompletableDeferred<Any?>()
-      val jsRet = jsCall(then,
+      val jsRet = jsCallImpl(
+        then,
         object : JSInvokable {
           override fun invoke(vararg argv: Any?, thisVal: Any?) {
             ret.complete(argv[0])
@@ -117,8 +152,10 @@ object QuickJS {
       return ret
     }
 
+    abstract fun loadModule(name: String): String?
+
     @Keep
-    fun handleJSInvokable(obj: JSInvokable, argv: Array<Any>, thisVal: Any?): Long {
+    private fun handleJSInvokable(obj: JSInvokable, argv: Array<Any>, thisVal: Any?): Long {
       return try {
         javaToJs(obj.invoke(*argv, thisVal))
       } catch (e: Throwable) {
@@ -126,7 +163,11 @@ object QuickJS {
       }
     }
 
-    fun jsCall(obj: JSFunction, vararg argv: Any?, thisVal: Any?): Long {
+    private fun jsCallImpl(
+      obj: JSObject,
+      vararg argv: Any?,
+      thisVal: Any? = null
+    ): Long = runOnDispatcher {
       val argvJs = argv.map { javaToJs(it) }.toLongArray()
       val thisJs = javaToJs(thisVal)
       val ret = jsCall(ptr, obj.ptr, thisJs, argvJs.size, argvJs)
@@ -134,11 +175,11 @@ object QuickJS {
       argvJs.forEach {
         jsFreeValue(ptr, it)
       }
-      engine.updateChannel.trySend(Unit)
+      updateChannel.trySend(Unit)
       if (isException(ret)) {
-        throw getException()
+        throw getException(ptr)
       }
-      return ret
+      ret
     }
 
     fun javaToJsImpl(obj: Any?, cache: MutableMap<Any, Long> = mutableMapOf()): Long {
@@ -169,7 +210,7 @@ object QuickJS {
         val (ret, jsRes, jsRej) = jsNewPromise(ptr)
         val resolve = jsToJava(ptr, jsRes) as JSFunction
         val reject = jsToJava(ptr, jsRej) as JSFunction
-        MainScope().launch(engine.dispatcher) {
+        MainScope().launch(dispatcher) {
           try {
             resolve.invoke(obj.await())
           } catch (e: Throwable) {
@@ -227,25 +268,18 @@ object QuickJS {
       }
     }
 
-    fun executePendingJob(): Int {
-      return executePendingJob(ptr)
-    }
-
-    fun getException(): JSError {
-      return getException(ptr)
-    }
-
-    fun evaluate(cmd: String, name: String = "<eval>", flag: Int = JSEvalFlag.GLOBAL): Any? {
-      val ret = evaluate(ptr, cmd, name, flag)
-      engine.updateChannel.trySend(Unit)
-      if (isException(ret)) {
-        throw getException()
+    fun evaluate(cmd: String, name: String = "<eval>", flag: Int = JSEvalFlag.GLOBAL): Any? =
+      runOnDispatcher {
+        val ret = evaluate(ptr, cmd, name, flag)
+        updateChannel.trySend(Unit)
+        if (isException(ret)) {
+          throw getException(ptr)
+        }
+        jsToJava(ptr, ret)
       }
-      return jsToJava(ptr, ret)
-    }
 
-    fun freeValue(obj: JSObject) {
-      runBlocking(engine.dispatcher) {
+    private fun freeValue(obj: JSObject) {
+      runOnDispatcher {
         ref.remove(obj.ptr)?.let {
           jsFreeValue(ptr, it.ptr)
         }
@@ -253,7 +287,8 @@ object QuickJS {
     }
 
     protected fun finalize() {
-      runBlocking(engine.dispatcher) {
+      runOnDispatcher {
+        updateChannel.close()
         if (ctxDelegate.isInitialized()) {
           ref.values.forEach {
             jsFreeValue(ptr, it.ptr)

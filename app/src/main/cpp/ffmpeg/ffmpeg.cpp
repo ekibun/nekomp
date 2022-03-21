@@ -109,7 +109,7 @@ Java_soko_ekibun_ffmpeg_AvFormat_initNative(
               "([B)I");
           jbyteArray arr = env->NewByteArray(buf_size);
           int ret = env->CallIntMethod(ioCtx, method, arr);
-          env->GetByteArrayRegion(arr, 0, ret, (jbyte *) buf);
+          if(ret > 0) env->GetByteArrayRegion(arr, 0, ret, (jbyte *) buf);
           env->DeleteLocalRef(arr);
           return ret;
         },

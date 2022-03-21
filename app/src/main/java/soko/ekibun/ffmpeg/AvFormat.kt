@@ -2,7 +2,6 @@ package soko.ekibun.ffmpeg
 
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.withContext
 import java.util.concurrent.Executors
 
 open class AvFormat(val url: String, val io: AvIO.Handler) {
@@ -12,14 +11,19 @@ open class AvFormat(val url: String, val io: AvIO.Handler) {
   }
 
   private var pctx: Long? = null
-  private val dispatcher by lazy {
-    Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+  private val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
+  private val dispatcherThread = runBlocking(dispatcher) { Thread.currentThread() }
+
+  private fun <T> runOnDispatcher(block: () -> T): T {
+    if (Thread.currentThread() == dispatcherThread) return block()
+    return runBlocking(dispatcher) { block() }
   }
+
   private var streams: List<AvStream>? = null
 
   private external fun initNative(url: String): Long
-  suspend fun<T> runWithContext(create: Boolean = false, cb: (ctx: Long) -> T) : T {
-    return withContext(dispatcher) {
+  private fun <T> runWithContext(create: Boolean = false, cb: (ctx: Long) -> T): T {
+    return runOnDispatcher {
       if (create && pctx == null) pctx = initNative(url)
       if ((pctx ?: 0L) == 0L) throw Exception("AvFormat closed")
       cb(pctx!!)
@@ -27,7 +31,7 @@ open class AvFormat(val url: String, val io: AvIO.Handler) {
   }
 
   private external fun getStreamsNative(pctx: Long): Array<AvStream>
-  suspend fun getStreams(): List<AvStream> = runWithContext(true) { ctx ->
+  fun getStreams(): List<AvStream> = runWithContext(true) { ctx ->
     if (streams == null) {
       streams = getStreamsNative(ctx).toList()
     }
@@ -60,10 +64,10 @@ open class AvFormat(val url: String, val io: AvIO.Handler) {
     packet: Long,
   ): Int
 
-  suspend fun getPacket(streams: Collection<AvStream>): AvPacket? = runWithContext { ctx ->
+  fun getPacket(streams: Collection<AvStream>): AvPacket? = runWithContext { ctx ->
     val packet = AvPacket()
     while (true) {
-      val ret = getPacketNative(ctx, packet.ptr!!)
+      val ret = getPacketNative(ctx, packet.ptr)
       if (ret < 0) {
         return@runWithContext null
       }
@@ -76,13 +80,11 @@ open class AvFormat(val url: String, val io: AvIO.Handler) {
   }
 
   private external fun destroyNative(ctx: Long)
-  open suspend fun close() {
-    withContext(dispatcher) {
-      pctx?.let { ctx ->
-        destroyNative(ctx)
-      }
-      pctx = null
+  open suspend fun close() = runWithContext {
+    pctx?.let { ctx ->
+      destroyNative(ctx)
     }
+    pctx = null
   }
 
   protected fun finalize() = runBlocking {

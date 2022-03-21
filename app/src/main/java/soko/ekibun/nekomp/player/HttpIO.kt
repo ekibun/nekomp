@@ -1,4 +1,4 @@
-package soko.ekibun.nekomp
+package soko.ekibun.nekomp.player
 
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -26,7 +26,7 @@ class HttpIO(val req: Request) : AvIO {
 
     fun read(buf: ByteArray): Int {
       val ret = stream.read(buf)
-      offset += ret
+      if(ret > 0) offset += ret
       return ret
     }
 
@@ -44,6 +44,7 @@ class HttpIO(val req: Request) : AvIO {
 
   class Handler : AvIO.Handler {
     override fun open(url: String): AvIO {
+      println("open: $url")
       return HttpIO(Request.Builder().get().url(url).build())
     }
   }
@@ -109,7 +110,7 @@ class HttpIO(val req: Request) : AvIO {
   override fun read(buf: ByteArray): Int {
     val ret = getResponse().read(buf)
     println("READ: $offset+$ret")
-    offset += ret
+    if(ret > 0) offset += ret
     return ret
   }
 

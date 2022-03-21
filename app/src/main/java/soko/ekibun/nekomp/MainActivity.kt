@@ -20,17 +20,19 @@ import soko.ekibun.ffmpeg.AVMediaType
 import soko.ekibun.ffmpeg.AvFormat
 import soko.ekibun.ffmpeg.AvStream
 import soko.ekibun.ffmpeg.FFPlayer
+import soko.ekibun.nekomp.player.HttpIO
+import soko.ekibun.nekomp.player.Playback
 import soko.ekibun.nekomp.ui.theme.NekompTheme
-import soko.ekibun.quickjs.Engine
 import soko.ekibun.quickjs.Highlight
 import soko.ekibun.quickjs.JSError
+import soko.ekibun.quickjs.QuickJS
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     super.onCreate(savedInstanceState)
 
     setContent {
-      CodePage()
+      PlayerPage()
     }
   }
 
@@ -39,7 +41,13 @@ class MainActivity : ComponentActivity() {
   fun CodePage() {
     var text by remember { mutableStateOf(TextFieldValue()) }
     var evalval by remember { mutableStateOf("") }
-    val quickjs = remember { Engine() }
+    val quickjs = remember {
+      object : QuickJS.Context() {
+        override fun loadModule(name: String): String? {
+          return null
+        }
+      }
+    }
 
     NekompTheme {
       Surface {
@@ -49,22 +57,26 @@ class MainActivity : ComponentActivity() {
             onValueChange = {
               text = TextFieldValue(Highlight.highlight(it.text), it.selection, it.composition)
             },
-            modifier = Modifier.fillMaxWidth().weight(1f)
+            modifier = Modifier
+              .fillMaxWidth()
+              .weight(1f)
           )
           Row {
             Button(onClick = {
               MainScope().launch {
-                evalval = quickjs.runWithContext {
-                  try {
-                    it.evaluate(text.text)
-                  } catch (e: JSError) {
-                    e.toString()
-                  }
+                evalval = try {
+                  quickjs.evaluate(text.text)
+                } catch (e: JSError) {
+                  e
                 }.toString()
               }
-            }) { Text("Run") }
+            }) { Text("Run>") }
           }
-          Text(text = evalval, modifier = Modifier.padding(10.dp).weight(1f))
+          Text(
+            text = evalval, modifier = Modifier
+              .padding(10.dp)
+              .weight(1f)
+          )
         }
       }
     }
@@ -74,7 +86,8 @@ class MainActivity : ComponentActivity() {
   @Composable
   fun PlayerPage() {
     val playback = remember { mutableStateOf<Playback?>(null) }
-    val url = remember { mutableStateOf("https://media.w3.org/2010/05/sintel/trailer.mp4") }
+    val url =
+      remember { mutableStateOf("http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8") }
     val player = remember { mutableStateOf<FFPlayer?>(null) }
     val duration = remember { mutableStateOf(0f) }
     val pts = remember { mutableStateOf(0f) }

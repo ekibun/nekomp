@@ -1,4 +1,4 @@
-package soko.ekibun.nekomp
+package soko.ekibun.nekomp.player
 
 import android.graphics.Bitmap
 import android.graphics.Paint
@@ -9,7 +9,6 @@ import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import soko.ekibun.ffmpeg.AvFormat
 import soko.ekibun.ffmpeg.AvPlayback
 import java.nio.ByteBuffer
 import java.util.concurrent.Executors

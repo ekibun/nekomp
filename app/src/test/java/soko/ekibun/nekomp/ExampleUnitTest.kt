@@ -1,13 +1,13 @@
 package soko.ekibun.nekomp
 
 import kotlinx.coroutines.Deferred
-import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Test
 import soko.ekibun.ffmpeg.FFPlayer
-import soko.ekibun.quickjs.Engine
-import soko.ekibun.quickjs.JSFunction
+import soko.ekibun.nekomp.player.HttpIO
+import soko.ekibun.quickjs.JSEvalFlag
+import soko.ekibun.quickjs.QuickJS
 
 /**
  * Example local unit test, which will execute on the development machine (host).
@@ -19,7 +19,7 @@ class ExampleUnitTest {
   fun ffmpeg(): Unit = runBlocking {
     System.loadLibrary("ffmpeg")
     val ctx = FFPlayer(
-      "https://media.w3.org/2010/05/sintel/trailer.mp4",
+      "http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8",
       HttpIO.Handler()
     )
     val streams = ctx.getStreams()
@@ -30,19 +30,21 @@ class ExampleUnitTest {
   @Test
   fun quickjs() {
     System.loadLibrary("quickjs")
-    val qjs = Engine()
     runBlocking {
-      val promise = async {
-        delay(1000)
-        "hello"
+      run {
+        val qjs = object:QuickJS.Context() {
+          override fun loadModule(name: String): String {
+            return "export default \"test module\""
+          }
+        }
+        qjs.evaluate("" +
+            "import handlerData from 'test';\n" +
+            "      export default {\n" +
+            "        data: handlerData\n" +
+            "      };", "evalModule", JSEvalFlag.MODULE)
+        val ret = (qjs.evaluate("import(\"evalModule\")") as Deferred<*>).await()
+        assert(((ret as Map<*, *>)["default"] as Map<*, *>)["data"] == "test module")
       }
-      qjs.runWithContext { ctx ->
-        val wrapper = ctx.evaluate("(a)=>a") as JSFunction
-        val testWrap = arrayOf(1, 0.1, true, "test", promise)
-        val ret = wrapper.invoke(testWrap)
-        assert(((ret as Array<*>)[4] as Deferred<*>).await() == "hello")
-      }
-      qjs.close()
       System.gc()
       delay(1000)
     }

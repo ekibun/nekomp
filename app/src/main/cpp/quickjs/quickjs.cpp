@@ -2,6 +2,7 @@
 #include "quickjs/quickjs.h"
 #include <unordered_map>
 #include <cstring>
+
 extern "C"
 {
 #include "quickjs/libregexp.h"
@@ -29,6 +30,34 @@ Java_soko_ekibun_quickjs_QuickJS_initContext(JNIEnv *env, jclass, jobject ctx) {
       env->NewWeakGlobalRef(ctx),
       0
   };
+  JS_SetModuleLoaderFunc(
+      rt, nullptr, [](JSContext *ctx, const char *module_name, void *) -> JSModuleDef * {
+        auto rt = JS_GetRuntime(ctx);
+        auto opaque = (JSRuntimeOpaque *) JS_GetRuntimeOpaque(rt);
+        if (opaque == nullptr)
+          return nullptr;
+        JNIEnv *env;
+        opaque->javaVm->GetEnv((void **) &env, JNI_VERSION_1_4);
+        jclass clazz = env->GetObjectClass(opaque->thiz);
+        jmethodID load = env->GetMethodID(clazz, "loadModule",
+                                          "(Ljava/lang/String;)Ljava/lang/String;");
+        auto javaStr = env->NewStringUTF(module_name);
+        auto retJava = (jstring) env->CallObjectMethod(opaque->thiz, load, javaStr);
+        if (retJava == nullptr)
+          return nullptr;
+        env->DeleteLocalRef(javaStr);
+        auto str = env->GetStringUTFChars(retJava, nullptr);
+        JSValue func_val = JS_Eval(ctx, str, strlen(str), module_name,
+                                   JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        env->ReleaseStringUTFChars(retJava, str);
+        env->DeleteLocalRef(retJava);
+        if (JS_IsException(func_val))
+          return nullptr;
+        /* the module is already referenced, so we must free it */
+        auto m = (JSModuleDef *) JS_VALUE_GET_PTR(func_val);
+        JS_FreeValue(ctx, func_val);
+        return m;
+      }, nullptr);
   JS_SetRuntimeOpaque(rt, opaque);
   JS_NewClassID(&(opaque->javaClassID));
   if (!JS_IsRegisteredClass(rt, opaque->javaClassID)) {
@@ -227,7 +256,6 @@ jobject jsToJava(JNIEnv *env, JSContext *ctx, JSValue obj,
       if (cache.find(ptr) != cache.end())
         return cache[ptr];
       if (JS_IsFunction(ctx, obj)) {
-
         jclass clazz = env->FindClass("soko/ekibun/quickjs/JSFunction");
         jmethodID init = env->GetMethodID(clazz, "<init>",
                                           "(JLsoko/ekibun/quickjs/QuickJS$Context;)V");
@@ -236,7 +264,7 @@ jobject jsToJava(JNIEnv *env, JSContext *ctx, JSValue obj,
       } else if (JS_IsError(ctx, obj)) {
         return jsToThrowable(env, ctx, obj);
       } else if (JS_IsPromise(ctx, obj)) {
-        jclass clazz = env->FindClass("soko/ekibun/quickjs/QuickJS$Context");
+        jclass clazz = env->GetObjectClass(opaque->thiz);
         jmethodID wrap = env->GetMethodID(clazz, "wrapJSPromiseAsync",
                                           "(JLsoko/ekibun/quickjs/JSFunction;)Lkotlinx/coroutines/Deferred;");
         auto thenJs = JS_GetPropertyStr(ctx, obj, "then");
@@ -389,11 +417,11 @@ Java_soko_ekibun_quickjs_QuickJS_jsNewPromise(JNIEnv *env, jclass, jlong ctx) {
 }
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_soko_ekibun_quickjs_Highlight_isIdentNext(JNIEnv *env, jobject thiz, jchar c) {
-  return (jboolean)lre_js_is_ident_first(c);
+Java_soko_ekibun_quickjs_Highlight_isIdentNext(JNIEnv *, jobject, jchar c) {
+  return (jboolean) lre_js_is_ident_first(c);
 }
 extern "C"
 JNIEXPORT jboolean JNICALL
-Java_soko_ekibun_quickjs_Highlight_isIdentFirst(JNIEnv *env, jobject thiz, jchar c) {
-  return (jboolean)lre_js_is_ident_next(c);
+Java_soko_ekibun_quickjs_Highlight_isIdentFirst(JNIEnv *, jobject, jchar c) {
+  return (jboolean) lre_js_is_ident_next(c);
 }
