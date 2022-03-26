@@ -6,6 +6,11 @@ class AvFrame(
   val width: Int,
   val height: Int
 ) {
+  companion object {
+    init {
+      System.loadLibrary("ffmpeg")
+    }
+  }
   var processing: FFPlayer.PTS? = null
 
   private external fun closeNative(ptr: Long)

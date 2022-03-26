@@ -71,21 +71,22 @@ class FFPlayer(
     // seek to next frame
     if (pts != newPts) return@withContext
     if (newPts.streams.containsKey(AVMediaType.VIDEO)) {
+      resume(!pauseAtSeekTo)
+    }
+  }
+
+  suspend fun resume(stopOnNextFrame: Boolean = false) = withContext(dispatcher) {
+    if(stopOnNextFrame) {
+      val newPts = pts
       val hitFrame = suspendCancellableCoroutine<Boolean> {
         if (pts != newPts) return@suspendCancellableCoroutine
         playingJob = async(dispatcher) { resumeImpl(it) }
       }
       if (pts != newPts) return@withContext
-      if (hitFrame && !pauseAtSeekTo) pause()
-    } else if (pauseAtSeekTo) {
-      resume()
+      if (hitFrame) pause()
+    } else {
+      playingJob = async(dispatcher) { resumeImpl(null) }
     }
-  }
-
-  suspend fun resume() = withContext(dispatcher) {
-    pause()
-    playingJob = async(dispatcher) { resumeImpl(null) }
-    playingJob?.join()
   }
 
   private val codecs = HashMap<Int, AvCodec>()
@@ -95,7 +96,7 @@ class FFPlayer(
     withContext(dispatcher) {
       val pts = pts ?: return@withContext
       val isPlaying = { pts == this@FFPlayer.pts && pts.playing }
-      @Suppress("DeferredResultUnused") val playJobs = pts.streams.map { (codecType, stream) ->
+      val playJobs = pts.streams.map { (codecType, stream) ->
         async(dispatcher) {
           var lastUpdateJob: Job? = null
           while (isPlaying()) {
@@ -171,6 +172,7 @@ class FFPlayer(
           val codec = codecs.getOrPut(stream.index) {
             AvCodec(stream)
           }
+          @Suppress("DeferredResultUnused")
           async(dispatcher) {
             val frame = if (this@FFPlayer.pts == pts) codec.sendPacketAndGetFrame(packet) else null
             sendingPacket--
@@ -189,6 +191,7 @@ class FFPlayer(
       playJobs.joinAll()
     }
 
+  @Suppress("DeferredResultUnused")
   override suspend fun close() = withContext(dispatcher) {
     pause()
     super.close()

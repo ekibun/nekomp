@@ -1,11 +1,4 @@
-/*
- * @Description:
- * @Author: ekibun
- * @Date: 2020-08-27 17:25:56
- * @LastEditors: ekibun
- * @LastEditTime: 2020-08-29 21:50:56
- */
-async (_dart, _webview) => {
+async (_java) => {
   class FormData {
     constructor(data) {
       const _data = data || {}
@@ -73,20 +66,18 @@ async (_dart, _webview) => {
   class _TextEncoder {
     constructor(encoding, options) {
       this.encoding = "" + (encoding || "utf-8");
-      this.fatal = (options && options.fatal) || false;
     }
     encode(data) {
-      return _dart('encode', [data, this.encoding, this.fatal])
+      return _java(null, 'encode', data, this.encoding)
     }
   }
 
   class _TextDecoder {
     constructor(encoding, options) {
       this.encoding = "" + (encoding || "utf-8");
-      this.fatal = (options && options.fatal) || false;
     }
     decode(data) {
-      return _dart('decode', [data, this.encoding, this.fatal])
+      return _java(null, 'decode', data, this.encoding)
     }
   }
 
@@ -97,10 +88,8 @@ async (_dart, _webview) => {
       this.ok = response.ok;
       this.redirected = response.redirected;
       this.status = response.status;
-      this.statusText = response.statusText;
       this.url = response.url;
       this.body = response.body;
-      this.redirects = response.redirects || [];
       // TODO `type`, `useFinalURL`, `bodyUsed`
     }
 
@@ -138,6 +127,40 @@ async (_dart, _webview) => {
     .map(v => "%" + v.toString(16))
     .join("").toUpperCase();
 
+  const globalProperties = {
+    TextEncoder: _TextEncoder,
+    TextDecoder: _TextDecoder,
+    Request,
+    Response,
+    FormData,
+    console: {
+      log: (...args) => {
+        _java(null, "console", "log", args);
+      },
+      info: (...args) => {
+        _java(null, "console", "info", args);
+      },
+      debug: (...args) => {
+        _java(null, "console", "debug", args);
+      },
+      error: (...args) => {
+        _java(null, "console", "error", args);
+      }
+    },
+    fetch: async (input, init) => {
+      const response = await _java(null, "fetchAsync", new Request(input, init));
+      return new Response(response);
+    },
+    encodeURI: (uri, encoding) => {
+      const encoder = new _TextEncoder(encoding || "utf-8");
+      return `${uri}`.replace(/[^a-zA-Z0-9-_.!~*'();/?:@&=+$,#]/g, (c) => encodeURI_hex(encoder, c));
+    },
+    encodeURIComponent: (uri, encoding) => {
+      const encoder = new _TextEncoder(encoding || "utf-8");
+      return `${uri}`.replace(/[^a-zA-Z0-9-_.!~*'()]/g, (c) => encodeURI_hex(encoder, c));
+    }
+  }
+
   function createClass(def) {
     function DartObject(opaque) {
       this.toString = () => `[object ${def.name}]`;
@@ -150,56 +173,6 @@ async (_dart, _webview) => {
       }
     };
     return (...args) => new DartObject(_dart(def.prefix, args));
-  }
-
-  const globalProperties = {
-    TextEncoder: _TextEncoder,
-    TextDecoder: _TextDecoder,
-    Request,
-    Response,
-    FormData,
-    HtmlParser: createClass({
-      prefix: "html",
-      name: "Element",
-      methods: {
-        query: (ctor, dartRet) => dartRet && new ctor(dartRet),
-        queryAll: (ctor, dartRet) => dartRet.map((el) => new ctor(el)),
-        attr: 0,
-        text: 0,
-        html: 0,
-        outerHtml: 0,
-        remove: 0,
-      }
-    }),
-    console: {
-      log: (...args) => {
-        _dart("console", ["log", args]);
-      },
-      info: (...args) => {
-        _dart("console", ["info", args]);
-      },
-      debug: (...args) => {
-        _dart("console", ["debug", args]);
-      },
-      error: (...args) => {
-        _dart("console", ["error", args]);
-      }
-    },
-    fetch: async (input, init) => {
-      const response = await _dart("fetch", [new Request(input, init)]);
-      return new Response(response);
-    },
-    webview: async (url, options) => {
-      return _webview(url, options || {});
-    },
-    encodeURI: (uri, encoding) => {
-      const encoder = new _TextEncoder(encoding || "utf-8");
-      return `${uri}`.replace(/[^a-zA-Z0-9-_.!~*'();/?:@&=+$,#]/g, (c) => encodeURI_hex(encoder, c));
-    },
-    encodeURIComponent: (uri, encoding) => {
-      const encoder = new _TextEncoder(encoding || "utf-8");
-      return `${uri}`.replace(/[^a-zA-Z0-9-_.!~*'()]/g, (c) => encodeURI_hex(encoder, c));
-    }
   }
 
   Object.defineProperties(this, Object.assign({},

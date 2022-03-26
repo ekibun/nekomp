@@ -9,7 +9,6 @@ extern "C"
 #include "libswresample/swresample.h"
 #include "libswscale/swscale.h"
 #include "libavutil/imgutils.h"
-#include <jni.h>
 }
 
 jobject av_dict_to_map(JNIEnv *env, AVDictionary *d) {

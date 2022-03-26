@@ -10,6 +10,11 @@ class AvCodec(
   private val dispatcher by lazy {
     Executors.newSingleThreadExecutor().asCoroutineDispatcher()
   }
+  companion object {
+    init {
+      System.loadLibrary("ffmpeg")
+    }
+  }
 
   private var pctx: Long? = null
   private external fun initNative(stream: Long): Long
@@ -24,7 +29,7 @@ class AvCodec(
   private external fun sendPacketAndGetFrameNative(ctx: Long, stream: Long, packet: Long): AvFrame?
   suspend fun sendPacketAndGetFrame(packet: AvPacket): AvFrame? = withContext(dispatcher) {
     val ctx = ensureContext(true)
-    sendPacketAndGetFrameNative(ctx, stream.ptr, packet.ptr!!)
+    sendPacketAndGetFrameNative(ctx, stream.ptr, packet.ptr)
   }
 
   private external fun flushNative(ctx: Long)

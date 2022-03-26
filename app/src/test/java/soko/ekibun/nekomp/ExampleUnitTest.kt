@@ -7,6 +7,7 @@ import org.junit.Test
 import soko.ekibun.ffmpeg.FFPlayer
 import soko.ekibun.nekomp.player.HttpIO
 import soko.ekibun.quickjs.JSEvalFlag
+import soko.ekibun.quickjs.JSObject
 import soko.ekibun.quickjs.QuickJS
 
 /**
@@ -32,18 +33,18 @@ class ExampleUnitTest {
     System.loadLibrary("quickjs")
     runBlocking {
       run {
-        val qjs = object:QuickJS.Context() {
-          override fun loadModule(name: String): String {
-            return "export default \"test module\""
+        val qjs = QuickJS.Context(
+          moduleHandler = {
+            "export default \"test module\""
           }
-        }
+        )
         qjs.evaluate("" +
             "import handlerData from 'test';\n" +
             "      export default {\n" +
             "        data: handlerData\n" +
             "      };", "evalModule", JSEvalFlag.MODULE)
         val ret = (qjs.evaluate("import(\"evalModule\")") as Deferred<*>).await()
-        assert(((ret as Map<*, *>)["default"] as Map<*, *>)["data"] == "test module")
+        assert(((ret as JSObject)["default"] as JSObject)["data"] == "test module")
       }
       System.gc()
       delay(1000)

@@ -8,6 +8,9 @@ open class AvFormat(val url: String, val io: AvIO.Handler) {
   companion object {
     const val AVSEEK_SIZE = 0x10000
     const val AV_TIME_BASE = 1000000
+    init {
+      System.loadLibrary("ffmpeg")
+    }
   }
 
   private var pctx: Long? = null

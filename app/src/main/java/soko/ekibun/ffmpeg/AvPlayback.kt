@@ -8,6 +8,12 @@ abstract class AvPlayback(
   abstract val audioFormat: Int
   abstract val videoFormat: Int
 
+  companion object {
+    init {
+      System.loadLibrary("ffmpeg")
+    }
+  }
+
   private external fun speedRatioNative(ctx: Long, new: Float): Float
   var speedRatio: Float
     get() = speedRatioNative(ctx, 0f)

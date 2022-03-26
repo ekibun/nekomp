@@ -1,16 +1,12 @@
 package soko.ekibun.nekomp.player
 
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import okhttp3.Response
 import okhttp3.internal.headersContentLength
 import soko.ekibun.ffmpeg.AvFormat
 import soko.ekibun.ffmpeg.AvIO
+import soko.ekibun.nekomp.common.Http
 
-class HttpIO(val req: Request) : AvIO {
-  companion object {
-    private val client = OkHttpClient()
-  }
+class HttpIO(val options: Map<String, Any>) : AvIO {
 
   private data class HttpResponse(
     private val rsp: Response,
@@ -20,13 +16,16 @@ class HttpIO(val req: Request) : AvIO {
 
     val headersContentLength get() = rsp.headersContentLength().toInt()
 
-    val available get() = try {
-      stream.available()
-    } catch (e: java.io.IOException) { 0 }
+    val available
+      get() = try {
+        stream.available()
+      } catch (e: java.io.IOException) {
+        0
+      }
 
     fun read(buf: ByteArray): Int {
       val ret = stream.read(buf)
-      if(ret > 0) offset += ret
+      if (ret > 0) offset += ret
       return ret
     }
 
@@ -42,10 +41,14 @@ class HttpIO(val req: Request) : AvIO {
     }
   }
 
-  class Handler : AvIO.Handler {
+  class Handler(private val options: Map<String, Any>? = null) : AvIO.Handler {
     override fun open(url: String): AvIO {
       println("open: $url")
-      return HttpIO(Request.Builder().get().url(url).build())
+      return HttpIO(
+        (options ?: mapOf()) + mapOf(
+          "url" to url
+        )
+      )
     }
   }
 
@@ -54,10 +57,12 @@ class HttpIO(val req: Request) : AvIO {
   private var offset = 0
   private var _rsp: HttpResponse? = null
   private fun getRange(start: Int): HttpResponse {
-    val rsp = client.newCall(
-      req.newBuilder()
-        .addHeader("range", "bytes=$start-")
-        .build()
+    val rsp = Http.request(
+      options + mapOf(
+        "headers" to (options["headers"] as? Map<*, *> ?: mapOf<Any, Any>()) + mapOf(
+          "range" to "bytes=$start-"
+        )
+      )
     ).execute()
     return HttpResponse(rsp, if (rsp.code == 206) start else 0)
   }
@@ -108,23 +113,33 @@ class HttpIO(val req: Request) : AvIO {
   }
 
   override fun read(buf: ByteArray): Int {
-    val ret = getResponse().read(buf)
-    println("READ: $offset+$ret")
-    if(ret > 0) offset += ret
-    return ret
+    return try {
+      val ret = getResponse().read(buf)
+      println("READ: $offset+$ret")
+      if (ret > 0) offset += ret
+      ret
+    } catch (e: Throwable) {
+      e.printStackTrace()
+      -1
+    }
   }
 
   override fun seek(offset: Int, whence: Int): Int {
-    println("SEEK: $offset $whence")
-    when (whence) {
-      AvFormat.AVSEEK_SIZE -> return getResponse().headersContentLength
-      else -> this.offset = offset
+    return try {
+      println("SEEK: $offset $whence")
+      when (whence) {
+        AvFormat.AVSEEK_SIZE -> return getResponse().headersContentLength
+        else -> this.offset = offset
+      }
+      return 0
+    } catch (e: Throwable) {
+      e.printStackTrace()
+      -1
     }
-    return 0
   }
 
   override fun close() {
-    println("CLOSE: ${req.url}")
+    println("CLOSE: ${options["url"]}")
     _rsp?.close()
     _rsp = null
   }

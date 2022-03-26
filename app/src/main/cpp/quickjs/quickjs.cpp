@@ -6,6 +6,7 @@
 extern "C"
 {
 #include "quickjs/libregexp.h"
+#include "quickjs/quickjs-atom.h"
 }
 
 struct JSRuntimeOpaque {
@@ -290,31 +291,11 @@ jobject jsToJava(JNIEnv *env, JSContext *ctx, JSValue obj,
         }
         return list;
       } else {
-        JSPropertyEnum *ptab;
-        uint32_t plen;
-        if (JS_GetOwnPropertyNames(ctx, &ptab, &plen, obj, -1))
-          return nullptr;
-        jclass class_hashmap = env->FindClass("java/util/HashMap");
-        jmethodID hashmap_init = env->GetMethodID(class_hashmap, "<init>", "()V");
-        jobject ret = env->NewObject(class_hashmap, hashmap_init);
-        jmethodID hashMap_put = env->GetMethodID(
-            class_hashmap, "put",
-            "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;");
-        cache[ptr] = ret;
-        for (uint32_t i = 0; i < plen; i++) {
-          auto jskey = JS_AtomToValue(ctx, ptab[i].atom);
-          auto key = jsToJava(env, ctx, jskey, cache);
-          auto jsvalue = JS_GetProperty(ctx, obj, ptab[i].atom);
-          auto value = jsToJava(env, ctx, jsvalue, cache);
-          env->CallObjectMethod(ret, hashMap_put, key, value);
-          env->DeleteLocalRef(key);
-          env->DeleteLocalRef(value);
-          JS_FreeValue(ctx, jskey);
-          JS_FreeValue(ctx, jsvalue);
-          JS_FreeAtom(ctx, ptab[i].atom);
-        }
-        js_free(ctx, ptab);
-        return ret;
+        jclass clazz = env->FindClass("soko/ekibun/quickjs/JSObject");
+        jmethodID init = env->GetMethodID(
+            clazz, "<init>", "(JLsoko/ekibun/quickjs/QuickJS$Context;)V");
+        return env->NewObject(clazz, init, (jlong)new JSValue(JS_DupValue(ctx, obj)),
+                              opaque->thiz);
       }
     }
     default:
@@ -365,7 +346,7 @@ Java_soko_ekibun_quickjs_QuickJS_jsNewCFunction(JNIEnv *, jclass, jlong ctx, jlo
 extern "C"
 JNIEXPORT jlong JNICALL
 Java_soko_ekibun_quickjs_QuickJS_jsThrowError(JNIEnv *, jclass, jlong ctx, jlong err) {
-  JS_Throw((JSContext *) ctx, *(JSValue *) err);
+  JS_Throw((JSContext *) ctx, JS_DupValue((JSContext *) ctx, *(JSValue *) err));
   jsFreeValue(ctx, err);
   return (jlong) new JSValue(JS_EXCEPTION);
 }
@@ -424,4 +405,33 @@ extern "C"
 JNIEXPORT jboolean JNICALL
 Java_soko_ekibun_quickjs_Highlight_isIdentFirst(JNIEnv *, jobject, jchar c) {
   return (jboolean) lre_js_is_ident_next(c);
+}
+extern "C"
+JNIEXPORT jlong JNICALL
+Java_soko_ekibun_quickjs_QuickJS_getPropertyValue(JNIEnv *, jclass, jlong ctx, jlong obj,
+                                                  jlong k) {
+  auto atom = JS_ValueToAtom((JSContext *) ctx, *(JSValue *) k);
+  auto ret = JS_GetProperty((JSContext *) ctx, *(JSValue *) obj, atom);
+  JS_FreeAtom((JSContext *) ctx, atom);
+  jsFreeValue(ctx, k);
+  return (jlong) new JSValue(ret);
+}
+extern "C"
+JNIEXPORT jobjectArray JNICALL
+Java_soko_ekibun_quickjs_QuickJS_getObjectKeys(JNIEnv *env, jclass, jlong ctx, jlong obj) {
+  JSPropertyEnum *ptab;
+  uint32_t plen;
+  if (JS_GetOwnPropertyNames((JSContext *)ctx, &ptab, &plen, *(JSValue *)obj, -1))
+    return nullptr;
+  jobjectArray ret = env->NewObjectArray(plen, env->FindClass("java/lang/Object"), nullptr);
+  for (uint32_t i = 0; i < plen; i++) {
+    auto jskey = JS_AtomToValue((JSContext *)ctx, ptab[i].atom);
+    auto key = jsToJava(env, (JSContext *)ctx, jskey);
+    env->SetObjectArrayElement(ret, i, key);
+    env->DeleteLocalRef(key);
+    JS_FreeValue((JSContext *)ctx, jskey);
+    JS_FreeAtom((JSContext *)ctx, ptab[i].atom);
+  }
+  js_free((JSContext *)ctx, ptab);
+  return ret;
 }

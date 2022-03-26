@@ -5,6 +5,9 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 
 object Highlight {
+  init {
+    System.loadLibrary("quickjs")
+  }
 
   private fun parseString(input: TokenParser, sep: Char): Int {
     while (input.offset < input.s.length) {

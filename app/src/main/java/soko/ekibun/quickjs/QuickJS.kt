@@ -7,6 +7,10 @@ import java.util.*
 import java.util.concurrent.Executors
 
 object QuickJS {
+  init {
+    System.loadLibrary("quickjs")
+  }
+
   @JvmStatic
   private external fun initContext(ctx: Context): Long
 
@@ -50,6 +54,19 @@ object QuickJS {
   ): Int
 
   @JvmStatic
+  private external fun getPropertyValue(
+    ctx: Long,
+    obj: Long,
+    k: Long,
+  ): Long
+
+  @JvmStatic
+  private external fun getObjectKeys(
+    ctx: Long,
+    obj: Long
+  ): Array<Any>
+
+  @JvmStatic
   private external fun jsDupValue(ctx: Long, obj: Long): Long
 
   @JvmStatic
@@ -85,13 +102,16 @@ object QuickJS {
   @JvmStatic
   private external fun jsNewPromise(ctx: Long): LongArray
 
-  abstract class Context {
+  class Context(
+    val moduleHandler: ((String) -> String?)? = null
+  ) {
 
     @Suppress("LeakingThis")
-    open class JSObject(val ptr: Long, protected val ctx: Context) {
+    open class JSValue(val ptr: Long, protected val ctx: Context) {
       init {
         ctx.ref[ptr] = this
       }
+
       protected open fun finalize() {
         ctx.freeValue(this)
       }
@@ -99,17 +119,25 @@ object QuickJS {
       protected fun jsCall(vararg argv: Any?, thisVal: Any?): Any? {
         return jsToJava(ctx.ptr, ctx.jsCallImpl(this, *argv, thisVal = thisVal))
       }
+
+      protected fun getPropertyValue(k: Any): Any? = ctx.runOnDispatcher {
+        jsToJava(ctx.ptr, getPropertyValue(ctx.ptr, ptr, ctx.javaToJs(k)))
+      }
+
+      protected fun getObjectKeys(): Array<Any> = ctx.runOnDispatcher {
+        getObjectKeys(ctx.ptr, ptr)
+      }
     }
 
-    private val ref = WeakHashMap<Long, JSObject>()
+    private val ref = WeakHashMap<Long, JSValue>()
     private val ctxDelegate = lazy { initContext(this) }
     private val ptr by ctxDelegate
     private val updateChannel = Channel<Unit>()
     private val dispatcher = Executors.newSingleThreadExecutor().asCoroutineDispatcher()
     private val dispatcherThread = runBlocking(dispatcher) { Thread.currentThread() }
 
-    private fun<T> runOnDispatcher(block: ()->T): T {
-      if(Thread.currentThread() == dispatcherThread) return block()
+    private fun <T> runOnDispatcher(block: () -> T): T {
+      if (Thread.currentThread() == dispatcherThread) return block()
       return runBlocking(dispatcher) { block() }
     }
 
@@ -146,25 +174,34 @@ object QuickJS {
             ret.completeExceptionally(argv[0] as? Throwable ?: JSError(argv.toString()))
           }
         },
-        thisVal = JSObject(obj, this)
+        thisVal = JSValue(obj, this)
       )
       jsFreeValue(ptr, jsRet)
       return ret
     }
 
-    abstract fun loadModule(name: String): String?
+    @Keep
+    private fun loadModule(name: String): String? {
+      return try {
+        moduleHandler?.invoke(name)
+      } catch (e: Throwable) {
+        e.printStackTrace()
+        null
+      }
+    }
 
     @Keep
     private fun handleJSInvokable(obj: JSInvokable, argv: Array<Any>, thisVal: Any?): Long {
       return try {
-        javaToJs(obj.invoke(*argv, thisVal))
+        javaToJs(obj.invoke(*argv, thisVal = thisVal))
       } catch (e: Throwable) {
+        e.printStackTrace()
         jsThrowError(ptr, javaToJs(e))
       }
     }
 
     private fun jsCallImpl(
-      obj: JSObject,
+      obj: JSValue,
       vararg argv: Any?,
       thisVal: Any? = null
     ): Long = runOnDispatcher {
@@ -203,7 +240,7 @@ object QuickJS {
         )
         return ret
       }
-      if (obj is JSObject) {
+      if (obj is JSValue) {
         return jsDupValue(ptr, obj.ptr)
       }
       if (obj is Deferred<Any?>) {
@@ -278,7 +315,7 @@ object QuickJS {
         jsToJava(ptr, ret)
       }
 
-    private fun freeValue(obj: JSObject) {
+    private fun freeValue(obj: JSValue) {
       runOnDispatcher {
         ref.remove(obj.ptr)?.let {
           jsFreeValue(ptr, it.ptr)

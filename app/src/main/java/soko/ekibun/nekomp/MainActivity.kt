@@ -6,6 +6,8 @@ import android.view.TextureView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -14,6 +16,7 @@ import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.launch
 import soko.ekibun.ffmpeg.AVMediaType
@@ -25,7 +28,6 @@ import soko.ekibun.nekomp.player.Playback
 import soko.ekibun.nekomp.ui.theme.NekompTheme
 import soko.ekibun.quickjs.Highlight
 import soko.ekibun.quickjs.JSError
-import soko.ekibun.quickjs.QuickJS
 
 class MainActivity : ComponentActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,13 +43,6 @@ class MainActivity : ComponentActivity() {
   fun CodePage() {
     var text by remember { mutableStateOf(TextFieldValue()) }
     var evalval by remember { mutableStateOf("") }
-    val quickjs = remember {
-      object : QuickJS.Context() {
-        override fun loadModule(name: String): String? {
-          return null
-        }
-      }
-    }
 
     NekompTheme {
       Surface {
@@ -59,13 +54,15 @@ class MainActivity : ComponentActivity() {
             },
             modifier = Modifier
               .fillMaxWidth()
+              .verticalScroll(rememberScrollState())
               .weight(1f)
           )
           Row {
             Button(onClick = {
               MainScope().launch {
                 evalval = try {
-                  quickjs.evaluate(text.text)
+                  val ret = App.ctx.jsEngine.evaluate(text.text)
+                  if(ret is Deferred<*>) ret.await() else ret
                 } catch (e: JSError) {
                   e
                 }.toString()
@@ -75,6 +72,7 @@ class MainActivity : ComponentActivity() {
           Text(
             text = evalval, modifier = Modifier
               .padding(10.dp)
+              .verticalScroll(rememberScrollState())
               .weight(1f)
           )
         }
@@ -87,7 +85,7 @@ class MainActivity : ComponentActivity() {
   fun PlayerPage() {
     val playback = remember { mutableStateOf<Playback?>(null) }
     val url =
-      remember { mutableStateOf("http://devimages.apple.com/iphone/samples/bipbop/bipbopall.m3u8") }
+      remember { mutableStateOf("https://media.w3.org/2010/05/sintel/trailer.mp4") }
     val player = remember { mutableStateOf<FFPlayer?>(null) }
     val duration = remember { mutableStateOf(0f) }
     val pts = remember { mutableStateOf(0f) }
